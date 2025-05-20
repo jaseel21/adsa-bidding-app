@@ -1,9 +1,8 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import Pusher from 'pusher-js';
 
 export default function BiddingPage() {
   const [students, setStudents] = useState([]);
@@ -11,33 +10,9 @@ export default function BiddingPage() {
   const [teamName, setTeamName] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
+  const [biddingStudentId, setBiddingStudentId] = useState(null);
   const router = useRouter();
-  const pusherRef = useRef(null);
   const isMounted = useRef(true);
-
-  // Initialize Pusher singleton
-  const initializePusher = useCallback(() => {
-    if (pusherRef.current) return pusherRef.current;
-
-    const token = localStorage.getItem('teamToken');
-    if (!token) return null;
-
-    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
-      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
-      authEndpoint: '/api/pusher/auth',
-      auth: {
-        headers: { Authorization: `Bearer ${token}` },
-      },
-    });
-
-    pusher.connection.bind('error', (err) => {
-      console.error('Pusher connection error:', err);
-      toast.error('Real-time updates failed');
-    });
-
-    pusherRef.current = pusher;
-    return pusher;
-  }, []);
 
   // Authentication
   useEffect(() => {
@@ -52,6 +27,7 @@ export default function BiddingPage() {
       console.log('Missing token or teamName, redirecting to team-login');
       localStorage.removeItem('teamToken');
       localStorage.removeItem('teamName');
+      setIsLoading(false);
       router.push('/team-login');
       return;
     }
@@ -63,16 +39,22 @@ export default function BiddingPage() {
 
     const checkAuth = async () => {
       try {
-        await axios.get('/api/auth/team-login', {
+        const response = await axios.get('/api/auth/team-login', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        console.log('Auth successful');
+        console.log('Auth successful:', response.data);
         setIsLoading(false);
       } catch (err) {
-        console.error('Auth error:', err);
+        console.error('Auth error:', {
+          message: err.message || 'Unknown error',
+          response: err.response?.data || null,
+          status: err.response?.status || null,
+          code: err.code || null,
+        });
         localStorage.removeItem('teamToken');
         localStorage.removeItem('teamName');
-        toast.error('Session expired. Please log in again.');
+        toast.error('Session expired or invalid. Please log in again.');
+        setIsLoading(false);
         router.push('/team-login');
       }
     };
@@ -83,91 +65,74 @@ export default function BiddingPage() {
     };
   }, [router, teamName]);
 
-  // Fetch students
+  // Fetch students and roster
   useEffect(() => {
     if (!teamName || isLoading) return;
 
     const token = localStorage.getItem('teamToken');
-    if (!token) return;
+    if (!token) {
+      console.log('No token, redirecting to team-login');
+      setIsLoading(false);
+      router.push('/team-login');
+      return;
+    }
 
     const fetchStudents = async () => {
       try {
         const res = await axios.get('/api/students/list', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        console.log('Fetched students:', res.data);
+        console.log('Fetched available students:', res.data.length);
         setStudents(res.data.filter((s) => !s.selected));
       } catch (err) {
-        console.error('Fetch students error:', err);
-        setError(err.response?.data?.message || 'Error fetching students');
+        console.error('Fetch students error:', {
+          message: err.message || 'Unknown error',
+          response: err.response?.data || null,
+          status: err.response?.status || null,
+          code: err.code || null,
+        });
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          localStorage.removeItem('teamToken');
+          localStorage.removeItem('teamName');
+          toast.error('Session invalid. Please log in again.');
+          router.push('/team-login');
+        } else {
+          setError(err.response?.data?.message || 'Error fetching students');
+        }
+      }
+    };
+
+    const fetchRoster = async () => {
+      try {
+        const res = await axios.get('/api/students/roster', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        console.log('Fetched roster:', res.data.length);
+        setTeamStudents(res.data);
+      } catch (err) {
+        console.error('Fetch roster error:', {
+          message: err.message || 'Unknown error',
+          response: err.response?.data || null,
+          status: err.response?.status || null,
+          code: err.code || null,
+        });
+        if (err.response?.status === 401 || err.response?.status === 403) {
+          localStorage.removeItem('teamToken');
+          localStorage.removeItem('teamName');
+          toast.error('Session invalid. Please log in again.');
+          router.push('/team-login');
+        } else {
+          setError(err.response?.data?.message || 'Error fetching roster');
+        }
       }
     };
 
     fetchStudents();
-    const interval = setInterval(fetchStudents, 10000); // Refresh every 10 seconds
+    fetchRoster();
+    const interval = setInterval(fetchStudents, 10000);
 
     return () => clearInterval(interval);
-  }, [teamName, isLoading]);
-
-  // Pusher subscriptions
-  useEffect(() => {
-    if (!teamName || !isMounted.current || isLoading) return;
-
-    const pusher = initializePusher();
-    if (!pusher) return;
-
-    const bidChannel = pusher.subscribe('bids');
-    const teamChannel = pusher.subscribe(`private-team-${teamName}`);
-
-    const debounce = (fn, ms) => {
-      let timeout;
-      return (...args) => {
-        clearTimeout(timeout);
-        timeout = setTimeout(() => fn(...args), ms);
-      };
-    };
-
-    const handleBidPlaced = useCallback(
-      debounce((data) => {
-        if (!isMounted.current || data.teamName === teamName) return;
-
-        setStudents((prev) => {
-          const exists = prev.some((s) => s._id === data.studentId);
-          if (!exists) return prev;
-          console.log('Removing student:', data.studentId, 'by', data.teamName);
-          return prev.filter((s) => s._id !== data.studentId);
-        });
-        toast.info(`${data.teamName} selected ${data.studentName}`);
-        const utterance = new SpeechSynthesisUtterance(`${data.teamName} selected ${data.studentName}`);
-        speechSynthesis.speak(utterance);
-      }, 1000),
-      [teamName]
-    );
-
-    const handleRosterUpdated = useCallback(
-      debounce((data) => {
-        if (!isMounted.current) return;
-
-        setTeamStudents((prev) => {
-          const newStudents = data.students || [];
-          if (JSON.stringify(prev) === JSON.stringify(newStudents)) return prev;
-          console.log('Updating roster:', newStudents);
-          return newStudents;
-        });
-      }, 1000),
-      []
-    );
-
-    bidChannel.bind('bid-placed', handleBidPlaced);
-    teamChannel.bind('roster-updated', handleRosterUpdated);
-
-    return () => {
-      if (pusher) {
-        pusher.unsubscribe('bids');
-        pusher.unsubscribe(`private-team-${teamName}`);
-      }
-    };
-  }, [teamName, initializePusher, isLoading]);
+  }, [teamName, isLoading, router]);
 
   const handleBid = async (studentId, studentName) => {
     if (!studentId || !teamName) {
@@ -176,26 +141,16 @@ export default function BiddingPage() {
       return;
     }
 
+    setBiddingStudentId(studentId);
     try {
       const token = localStorage.getItem('teamToken');
       if (!token) {
+        console.error('No team token found');
         throw new Error('No team token found');
       }
 
-      console.log('Sending bid:', { studentId, teamName });
-      const response = await axios.post(
-        '/api/students/list',
-        { studentId, teamName },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      console.log('Bid response:', response.data);
-
-      toast.success(`You selected ${studentName}`);
-      const utterance = new SpeechSynthesisUtterance(`You selected ${studentName}`);
-      speechSynthesis.speak(utterance);
-
-      // Update local state immediately
       setTeamStudents((prev) => {
+        if (prev.some((s) => s._id === studentId)) return prev;
         const newRoster = [...prev, { _id: studentId, name: studentName }];
         console.log('Local roster updated:', newRoster);
         return newRoster;
@@ -205,15 +160,61 @@ export default function BiddingPage() {
         return prev.filter((s) => s._id !== studentId);
       });
 
-      // Trigger Pusher events (handled server-side)
+      console.log('Sending bid:', { studentId, teamName });
+      const response = await axios.post(
+        '/api/students/bid',
+        { studentId, teamName },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      console.log('Bid response:', response.data);
     } catch (err) {
-      console.error('Bid error:', err.response?.data || err.message);
-      toast.error(err.response?.data?.message || 'Failed to place bid');
+      console.error('Bid error:', {
+        message: err.message || 'Unknown error',
+        response: err.response?.data || null,
+        status: err.response?.status || null,
+        code: err.code || null,
+        axiosError: err.isAxiosError
+          ? {
+              statusText: err.response?.statusText,
+              data: err.response?.data,
+              headers: err.response?.headers,
+            }
+          : null,
+      });
+      setTeamStudents((prev) => prev.filter((s) => s._id !== studentId));
+      setStudents((prev) => {
+        const student = { _id: studentId, name: studentName, selected: false };
+        return prev.some((s) => s._id === studentId) ? prev : [...prev, student];
+      });
+      if (err.response?.status === 401 || err.response?.status === 403) {
+        localStorage.removeItem('teamToken');
+        localStorage.removeItem('teamName');
+        toast.error('Session invalid. Please log in again.');
+        router.push('/team-login');
+      } else {
+        toast.error(err.response?.data?.message || 'Failed to place bid');
+      }
+    } finally {
+      setBiddingStudentId(null);
     }
   };
 
   if (isLoading) {
     return <div className="min-h-screen bg-gray-100 p-6">Loading...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-100 p-6">
+        <p className="text-red-500">{error}</p>
+        <button
+          onClick={() => router.push('/team-login')}
+          className="mt-4 bg-blue-500 text-white px-4 py-2 rounded-lg"
+        >
+          Log In Again
+        </button>
+      </div>
+    );
   }
 
   return (
@@ -231,10 +232,10 @@ export default function BiddingPage() {
                 <p>Token: {student.tokenNumber}</p>
                 <button
                   onClick={() => student._id && handleBid(student._id, student.name)}
-                  className="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
-                  disabled={student.selected}
+                  className="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  disabled={student.selected || biddingStudentId === student._id}
                 >
-                  {student.selected ? 'Already Selected' : 'Place Bid'}
+                  {biddingStudentId === student._id ? 'Bidding...' : student.selected ? 'Already Selected' : 'Place Bid'}
                 </button>
               </div>
             ))
