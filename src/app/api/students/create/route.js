@@ -45,7 +45,7 @@ export async function POST(request) {
     const existingStudent = await Student.findOne({ tokenNumber }).lean();
     if (existingStudent) {
       console.warn('Duplicate tokenNumber:', tokenNumber);
-      return NextResponse.json({ message: 'Token number already exists' }, { status: 400 });
+      return NextResponse.json({ message: `Token number ${tokenNumber} already exists` }, { status: 400 });
     }
 
     // Create and save student
@@ -76,7 +76,10 @@ export async function POST(request) {
       return NextResponse.json({ message: 'Invalid token' }, { status: 401 });
     }
     if (error.code === 11000) {
-      return NextResponse.json({ message: 'Token number already exists' }, { status: 400 });
+      return NextResponse.json(
+        { message: `Token number ${request.body.tokenNumber || 'unknown'} already exists` },
+        { status: 400 }
+      );
     }
     return NextResponse.json(
       { message: 'Error creating student', error: error.message },

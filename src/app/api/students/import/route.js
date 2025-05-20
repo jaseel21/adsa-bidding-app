@@ -37,6 +37,7 @@ export async function POST(request) {
     const stream = Readable.from(buffer);
 
     const students = [];
+    const invalidRows = [];
     await new Promise((resolve, reject) => {
       stream
         .pipe(
@@ -65,10 +66,11 @@ export async function POST(request) {
             });
           } else {
             console.warn('Skipping invalid row:', row);
+            invalidRows.push(row);
           }
         })
         .on('end', () => {
-          console.log('CSV parsing completed, rows parsed:', students.length);
+          console.log('CSV parsing completed, rows parsed:', students.length, 'invalid rows:', invalidRows.length);
           resolve();
         })
         .on('error', (err) => {
@@ -79,24 +81,35 @@ export async function POST(request) {
 
     if (students.length === 0) {
       console.warn('No valid students found in CSV');
-      return NextResponse.json({ message: 'No valid students found in CSV' }, { status: 400 });
+      return NextResponse.json(
+        { message: 'No valid students found in CSV', invalidRows },
+        { status: 400 }
+      );
     }
 
     console.log('Inserting students:', students.length);
+    const duplicateTokenNumbers = [];
     const result = await Student.insertMany(students, { ordered: false }).catch((err) => {
       if (err.code === 11000) {
         console.warn('Duplicate tokenNumber detected, partial insert');
+        const failedDocs = err.writeErrors?.map((writeError) => writeError.getOperation()) || [];
+        duplicateTokenNumbers.push(...failedDocs.map((doc) => doc.tokenNumber));
         return { insertedCount: err.result?.result?.nInserted || 0 };
       }
       throw err;
     });
 
     const insertedCount = result.insertedCount || 0;
-    console.log('Imported students:', insertedCount);
+    console.log('Imported students:', insertedCount, 'duplicates:', duplicateTokenNumbers.length);
     return NextResponse.json(
       {
-        message: insertedCount > 0 ? 'Students imported successfully' : 'No new students imported (possible duplicates)',
+        message:
+          insertedCount > 0
+            ? `Imported ${insertedCount} students successfully`
+            : 'No new students imported due to duplicate token numbers',
         count: insertedCount,
+        duplicates: duplicateTokenNumbers,
+        invalidRows,
       },
       { status: 201 }
     );

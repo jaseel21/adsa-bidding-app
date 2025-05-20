@@ -118,7 +118,15 @@ export default function AdminPanel() {
         },
       });
       console.log('CSV import response:', response.data);
-      toast.success(`Imported ${response.data.count} students`);
+      const { count, duplicates, invalidRows } = response.data;
+      let toastMessage = `Imported ${count} students`;
+      if (duplicates?.length) {
+        toastMessage += `. Skipped duplicates: ${duplicates.join(', ')}`;
+      }
+      if (invalidRows?.length) {
+        toastMessage += `. Invalid rows: ${invalidRows.length}`;
+      }
+      toast.success(toastMessage);
       setCsvFile(null);
     } catch (err) {
       console.error('CSV import error:', {
@@ -138,7 +146,7 @@ export default function AdminPanel() {
     setIsLoading(true);
     try {
       console.log('Adding team:', teamForm);
-      const response = await axios.post('/api/teams', teamForm, {
+      const response = await axios.post('/api/teams/create', teamForm, {
         headers: { Authorization: `Bearer ${localStorage.getItem('adminToken')}` },
       });
       console.log('Team added:', response.data);

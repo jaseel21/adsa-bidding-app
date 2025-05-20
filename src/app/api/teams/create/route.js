@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import dbConnect from '../../../../../utils/dbConnect';
-import Team from '../../../models/Team';
+import Team from '../../../../models/Team';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 
