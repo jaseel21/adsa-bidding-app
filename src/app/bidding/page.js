@@ -10,9 +10,15 @@ export default function BiddingPage() {
   const [teamName, setTeamName] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
-  const [biddingStudentId, setBiddingStudentId] = useState(null);
+  const [biddingStudentIds, setBiddingStudentIds] = useState(new Set());
   const router = useRouter();
   const isMounted = useRef(true);
+
+  // Test toast button
+  const handleTestToast = () => {
+    console.log('Triggering test toast');
+    toast.info('Test toast');
+  };
 
   // Authentication
   useEffect(() => {
@@ -45,12 +51,7 @@ export default function BiddingPage() {
         console.log('Auth successful:', response.data);
         setIsLoading(false);
       } catch (err) {
-        console.error('Auth error:', {
-          message: err.message || 'Unknown error',
-          response: err.response?.data || null,
-          status: err.response?.status || null,
-          code: err.code || null,
-        });
+        console.error('Auth error:', err);
         localStorage.removeItem('teamToken');
         localStorage.removeItem('teamName');
         toast.error('Session expired or invalid. Please log in again.');
@@ -82,15 +83,11 @@ export default function BiddingPage() {
         const res = await axios.get('/api/students/list', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        console.log('Fetched available students:', res.data.length);
+        console.log('Fetched students:', res.data);
         setStudents(res.data.filter((s) => !s.selected));
+        console.log('Available students:', res.data.filter((s) => !s.selected).length);
       } catch (err) {
-        console.error('Fetch students error:', {
-          message: err.message || 'Unknown error',
-          response: err.response?.data || null,
-          status: err.response?.status || null,
-          code: err.code || null,
-        });
+        console.error('Fetch students error:', err);
         if (err.response?.status === 401 || err.response?.status === 403) {
           localStorage.removeItem('teamToken');
           localStorage.removeItem('teamName');
@@ -110,12 +107,7 @@ export default function BiddingPage() {
         console.log('Fetched roster:', res.data.length);
         setTeamStudents(res.data);
       } catch (err) {
-        console.error('Fetch roster error:', {
-          message: err.message || 'Unknown error',
-          response: err.response?.data || null,
-          status: err.response?.status || null,
-          code: err.code || null,
-        });
+        console.error('Fetch roster error:', err);
         if (err.response?.status === 401 || err.response?.status === 403) {
           localStorage.removeItem('teamToken');
           localStorage.removeItem('teamName');
@@ -141,7 +133,12 @@ export default function BiddingPage() {
       return;
     }
 
-    setBiddingStudentId(studentId);
+    if (biddingStudentIds.has(studentId)) {
+      console.log('Bid already in progress for student:', studentId);
+      return;
+    }
+
+    setBiddingStudentIds((prev) => new Set(prev).add(studentId));
     try {
       const token = localStorage.getItem('teamToken');
       if (!token) {
@@ -152,7 +149,7 @@ export default function BiddingPage() {
       setTeamStudents((prev) => {
         if (prev.some((s) => s._id === studentId)) return prev;
         const newRoster = [...prev, { _id: studentId, name: studentName }];
-        console.log('Local roster updated:', newRoster);
+        console.log('Local roster updated:', newRoster.map((s) => s._id));
         return newRoster;
       });
       setStudents((prev) => {
@@ -168,18 +165,13 @@ export default function BiddingPage() {
       );
       console.log('Bid response:', response.data);
     } catch (err) {
+      console.error('Raw bid error:', err);
       console.error('Bid error:', {
         message: err.message || 'Unknown error',
         response: err.response?.data || null,
         status: err.response?.status || null,
         code: err.code || null,
-        axiosError: err.isAxiosError
-          ? {
-              statusText: err.response?.statusText,
-              data: err.response?.data,
-              headers: err.response?.headers,
-            }
-          : null,
+        stack: err.stack || null,
       });
       setTeamStudents((prev) => prev.filter((s) => s._id !== studentId));
       setStudents((prev) => {
@@ -195,7 +187,11 @@ export default function BiddingPage() {
         toast.error(err.response?.data?.message || 'Failed to place bid');
       }
     } finally {
-      setBiddingStudentId(null);
+      setBiddingStudentIds((prev) => {
+        const newSet = new Set(prev);
+        newSet.delete(studentId);
+        return newSet;
+      });
     }
   };
 
@@ -221,6 +217,12 @@ export default function BiddingPage() {
     <div className="min-h-screen bg-gray-100 p-6 flex">
       <div className="flex-1">
         <h1 className="text-3xl font-bold mb-6">Bidding Dashboard - {teamName}</h1>
+        {/* <button
+          onClick={handleTestToast}
+          className="mb-4 bg-green-500 text-white px-4 py-2 rounded-lg"
+        >
+          Test Toast
+        </button> */}
         {error && <p className="text-red-500 mb-4">{error}</p>}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {students.length > 0 ? (
@@ -233,9 +235,13 @@ export default function BiddingPage() {
                 <button
                   onClick={() => student._id && handleBid(student._id, student.name)}
                   className="mt-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  disabled={student.selected || biddingStudentId === student._id}
+                  disabled={student.selected || biddingStudentIds.has(student._id)}
                 >
-                  {biddingStudentId === student._id ? 'Bidding...' : student.selected ? 'Already Selected' : 'Place Bid'}
+                  {biddingStudentIds.has(student._id)
+                    ? 'Bidding...'
+                    : student.selected
+                    ? 'Already Bidded'
+                    : 'Place Bid'}
                 </button>
               </div>
             ))

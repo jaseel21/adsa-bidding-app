@@ -1,108 +1,98 @@
 'use client';
-import { useEffect, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import Pusher from 'pusher-js';
 import { toast } from 'react-toastify';
 
 export default function NotificationProvider({ children }) {
-  const pusherRef = useRef(null);
-  const audioRef = useRef(null);
+  const [isAudioUnlocked, setIsAudioUnlocked] = useState(false);
 
-  // Request notification permission
   useEffect(() => {
-    if ('Notification' in window && Notification.permission !== 'granted') {
-      Notification.requestPermission().then(permission => {
-        if (permission === 'granted') {
-          console.log('Notification permission granted');
+    const unlockAudio = () => {
+      if (!isAudioUnlocked) {
+        console.log('Audio unlock attempt');
+        setIsAudioUnlocked(true);
+        if ('speechSynthesis' in window) {
+          speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+          console.log('SpeechSynthesis initialized');
         } else {
-          console.warn('Notification permission denied');
-          toast.warn('Notifications disabled. Please enable in browser settings.');
+          console.error('SpeechSynthesis not supported');
+          toast.error('Voice not supported');
         }
-      });
-    }
-  }, []);
-
-  // Initialize audio
-  useEffect(() => {
-    audioRef.current = new Audio('/notification-tone.mp3');
-    audioRef.current.preload = 'auto';
-    audioRef.current.volume = 0.7; // Slightly lower volume
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
       }
     };
-  }, []);
+    document.addEventListener('click', unlockAudio);
+    return () => document.removeEventListener('click', unlockAudio);
+  }, [isAudioUnlocked]);
 
-  // Initialize Pusher
   useEffect(() => {
-    const pusher = new Pusher(process.env.NEXT_PUBLIC_PUSHER_KEY, {
-      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER,
+    const pusherKey = process.env.NEXT_PUBLIC_PUSHER_KEY;
+    console.log('Pusher setup:', { key: pusherKey });
+
+    if (!pusherKey) {
+      console.error('Pusher key missing');
+      toast.error('Pusher configuration error');
+      return;
+    }
+
+    const pusher = new Pusher(pusherKey, {
+      cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'ap2',
       forceTLS: true,
     });
 
-    pusherRef.current = pusher;
+    const channel = pusher.subscribe('bids');
+    console.log('Subscribing to bids');
 
-    const bidChannel = pusher.subscribe('bids');
-    bidChannel.bind('bid-placed', ({ studentId, studentName, teamName, timestamp }) => {
-      console.log('Received bid notification:', { studentId, studentName, teamName, timestamp });
+    channel.bind('bid-placed', ({ studentId, studentName, teamName, timestamp }) => {
+      console.log('Bid received:', { studentId, studentName, teamName, timestamp });
 
-      // Browser notification
-      if ('Notification' in window && Notification.permission === 'granted') {
-        try {
-          new Notification('New Student Selection', {
-            body: `${teamName} selected ${studentName}`,
-            icon: '/favicon.ico',
-            tag: `bid-${studentId}-${timestamp}`, // Prevent duplicates
-          });
-        } catch (err) {
-          console.error('Notification error:', err.message);
-        }
-      }
+      toast.info(`${teamName} selected ${studentName}`, {
+        toastId: `bid-${studentId}-${timestamp}`,
+      });
+      console.log('Toast triggered');
 
-      // Play notification tone
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-        audioRef.current.play().catch(err => {
-          console.error('Audio playback error:', err.message);
-          toast.warn('Notification tone blocked. Please interact with the page.');
-        });
-      }
-
-      // Voice announcement
-      if ('speechSynthesis' in window) {
+      if ('speechSynthesis' in window && isAudioUnlocked) {
         const utterance = new SpeechSynthesisUtterance(`${teamName} selected ${studentName}`);
-        utterance.volume = 1;
-        utterance.rate = 1;
         utterance.lang = 'en-US';
-        speechSynthesis.cancel();
+        const voices = speechSynthesis.getVoices();
+        console.log('Voices:', voices.map(v => v.name));
+        const enUSVoice = voices.find(v => v.lang === 'en-US');
+        if (enUSVoice) {
+          utterance.voice = enUSVoice;
+          console.log('Voice selected:', enUSVoice.name);
+        }
         speechSynthesis.speak(utterance);
+        console.log('Voice triggered');
       } else {
-        console.warn('SpeechSynthesis not supported');
-        toast.warn('Voice announcements not supported in this browser.');
+        console.warn('SpeechSynthesis blocked:', {
+          supported: 'speechSynthesis' in window,
+          unlocked: isAudioUnlocked,
+        });
+        toast.warn('Click "Enable Voice" for audio');
       }
-
-      // In-app toast
-      toast.info(`${teamName} selected ${studentName}`, { toastId: `bid-${studentId}-${timestamp}` });
     });
 
-    bidChannel.bind('pusher:subscription_error', (err) => {
-      console.error('Pusher subscription error:', err);
-      toast.error('Failed to connect to real-time notifications');
-    });
-
-    pusher.connection.bind('error', (err) => {
-      console.error('Pusher connection error:', err);
-    });
+    channel.bind('pusher:subscription_succeeded', () => console.log('Subscribed to bids'));
+    channel.bind('pusher:subscription_error', err => console.error('Subscription error:', err));
+    pusher.connection.bind('connected', () => console.log('Pusher connected'));
+    pusher.connection.bind('error', err => console.error('Pusher error:', err));
 
     return () => {
-      if (pusherRef.current) {
-        pusherRef.current.unsubscribe('bids');
-        pusherRef.current.disconnect();
-        pusherRef.current = null;
-      }
+      pusher.unsubscribe('bids');
+      pusher.disconnect();
     };
-  }, []);
+  }, [isAudioUnlocked]);
 
-  return <>{children}</>;
+  return (
+    <>
+      {!isAudioUnlocked && (
+        <button
+          onClick={() => setIsAudioUnlocked(true)}
+          style={{ position: 'fixed', top: 10, right: 10, padding: '10px', background: '#007bff', color: '#fff' }}
+        >
+          Enable Voice
+        </button>
+      )}
+      {children}
+    </>
+  );
 }

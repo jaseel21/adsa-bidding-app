@@ -17,6 +17,22 @@ export async function POST(request) {
     console.log('POST /api/students/bid: Starting');
     await dbConnect();
 
+    // Validate Pusher config
+    if (!process.env.PUSHER_APP_ID || !process.env.PUSHER_KEY || !process.env.PUSHER_SECRET || !process.env.PUSHER_CLUSTER) {
+      console.error('Pusher configuration missing:', {
+        appId: !!process.env.PUSHER_APP_ID,
+        key: !!process.env.PUSHER_KEY,
+        secret: !!process.env.PUSHER_SECRET,
+        cluster: !!process.env.PUSHER_CLUSTER,
+      });
+      return NextResponse.json({ message: 'Server configuration error' }, { status: 500 });
+    }
+    console.log('Pusher config:', {
+      appId: process.env.PUSHER_APP_ID,
+      key: process.env.PUSHER_KEY,
+      cluster: process.env.PUSHER_CLUSTER,
+    });
+
     const token = request.headers.get('authorization')?.split(' ')[1];
     if (!token) {
       console.warn('No token provided');
@@ -33,10 +49,10 @@ export async function POST(request) {
       }
     } catch (err) {
       console.error('Token verification error:', err.message);
-      if (err.name === 'TokenExpiredError') {
-        return NextResponse.json({ message: 'Token expired' }, { status: 401 });
-      }
-      return NextResponse.json({ message: 'Invalid token' }, { status: 401 });
+      return NextResponse.json(
+        { message: err.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid token' },
+        { status: 401 }
+      );
     }
 
     const { studentId, teamName } = await request.json();
@@ -54,22 +70,20 @@ export async function POST(request) {
 
     const student = await Student.findOneAndUpdate(
       { _id: studentId, selected: false },
-      { selected: true, groupName: teamName },
+      { selected: true, biddedBy: teamName },
       { new: true, lean: true, select: 'name _id' }
     );
 
     if (!student) {
-      console.warn('Student not found or already selected:', studentId);
-      return NextResponse.json({ message: 'Student not found or already selected' }, { status: 400 });
+      console.warn('Student not found or already bidded:', studentId);
+      return NextResponse.json({ message: 'Student not found or already bidded' }, { status: 400 });
     }
 
-    console.log('Student updated:', { id: student._id, name: student.name, groupName: teamName });
+    console.log('Student updated:', { id: student._id, name: student.name, biddedBy: teamName });
 
-    // Sanitize teamName for Pusher channel
     const sanitizedTeamName = teamName.replace(/\s+/g, '-').toLowerCase();
     console.log('Sanitized teamName for Pusher:', sanitizedTeamName);
 
-    // Trigger Pusher events with retry logic
     let pusherSuccess = false;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
@@ -85,7 +99,7 @@ export async function POST(request) {
             timestamp: Date.now(),
           }),
         ]);
-        console.log('Pusher events triggered: bids:bid-placed, private-team-', sanitizedTeamName, ':roster-updated');
+        console.log(`Pusher events triggered (attempt ${attempt}): bids:bid-placed, private-team-${sanitizedTeamName}:roster-updated`);
         pusherSuccess = true;
         break;
       } catch (pusherErr) {
@@ -93,7 +107,8 @@ export async function POST(request) {
           message: pusherErr.message || 'Unknown Pusher error',
           name: pusherErr.name || 'Unknown',
           details: pusherErr.details || null,
-          attempt,
+          status: pusherErr.status || null,
+          stack: pusherErr.stack || null,
         });
         if (attempt === 3) {
           console.warn('All Pusher trigger attempts failed');
@@ -104,6 +119,10 @@ export async function POST(request) {
 
     if (!pusherSuccess) {
       console.warn('Pusher events failed, but bid processed successfully');
+      return NextResponse.json(
+        { message: 'Bid placed successfully, but notifications may be delayed', student },
+        { status: 200 }
+      );
     }
 
     return NextResponse.json(
