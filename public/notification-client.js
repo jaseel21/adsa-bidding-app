@@ -57,7 +57,6 @@
       console.log('Toast displayed (bid-placed)');
     });
 
-    // Subscribe to team channels
     ['team-1', 'team-2', 'team-3'].forEach(sanitizedTeamName => {
       const teamChannel = pusher.subscribe(`private-team-${sanitizedTeamName}`);
       teamChannel.bind('roster-updated', ({ student, timestamp }) => {
@@ -83,7 +82,7 @@
           const setVoice = () => {
             const voices = speechSynthesis.getVoices();
             console.log('Voices:', voices.map(v => v.name));
-            const enUSVoice = voices.find(v => v.lang === 'en-US' && v.name.includes('Google US English')) || 
+            const enUSVoice = voices.find(v => v.lang === 'en-US' && v.name.includes('Google US English')) ||
                              voices.find(v => v.lang === 'en-US');
             if (enUSVoice) {
               utterance.voice = enUSVoice;
