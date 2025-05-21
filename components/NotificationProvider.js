@@ -37,22 +37,26 @@ export default function NotificationProvider({ children }) {
     const pusher = new Pusher(pusherKey, {
       cluster: process.env.NEXT_PUBLIC_PUSHER_CLUSTER || 'ap2',
       forceTLS: true,
+      enabledTransports: ['ws', 'wss'],
     });
 
     const channel = pusher.subscribe('bids');
     console.log('Subscribing to bids');
 
-    channel.bind('bid-placed', ({ studentId, studentName, teamName, timestamp }) => {
-      console.log('Bid received:', { studentId, studentName, teamName, timestamp });
+    channel.bind('bid-placed', ({ studentId, studentName, teamName, batch, timestamp }) => {
+      console.log('Bid received:', { studentId, studentName, teamName, batch, timestamp });
 
-      toast.info(`${teamName} selected ${studentName}`, {
+      toast.info(`${teamName} selected ${studentName} (${batch})`, {
         toastId: `bid-${studentId}-${timestamp}`,
+        position: 'top-right',
+        autoClose: 5000,
       });
       console.log('Toast triggered');
 
       if ('speechSynthesis' in window && isAudioUnlocked) {
-        const utterance = new SpeechSynthesisUtterance(`${teamName} selected ${studentName}`);
+        const utterance = new SpeechSynthesisUtterance(`${teamName} selected ${studentName} ${batch}`);
         utterance.lang = 'en-US';
+        utterance.volume = 0.8;
         const voices = speechSynthesis.getVoices();
         console.log('Voices:', voices.map(v => v.name));
         const enUSVoice = voices.find(v => v.lang === 'en-US');
@@ -67,7 +71,11 @@ export default function NotificationProvider({ children }) {
           supported: 'speechSynthesis' in window,
           unlocked: isAudioUnlocked,
         });
-        toast.warn('Click "Enable Voice" for audio');
+        toast.warn('Click anywhere to enable audio', {
+          toastId: 'audio-warning',
+          position: 'top-right',
+          autoClose: 5000,
+        });
       }
     });
 
@@ -82,17 +90,5 @@ export default function NotificationProvider({ children }) {
     };
   }, [isAudioUnlocked]);
 
-  return (
-    <>
-      {!isAudioUnlocked && (
-        <button
-          onClick={() => setIsAudioUnlocked(true)}
-          style={{ position: 'fixed', top: 10, right: 10, padding: '10px', background: '#007bff', color: '#fff' }}
-        >
-          Enable Voice
-        </button>
-      )}
-      {children}
-    </>
-  );
+  return <>{children}</>;
 }

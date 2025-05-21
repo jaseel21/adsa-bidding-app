@@ -17,7 +17,6 @@ export async function POST(request) {
     console.log('POST /api/students/bid: Starting');
     await dbConnect();
 
-    // Validate Pusher config
     if (!process.env.PUSHER_APP_ID || !process.env.PUSHER_KEY || !process.env.PUSHER_SECRET || !process.env.PUSHER_CLUSTER) {
       console.error('Pusher configuration missing:', {
         appId: !!process.env.PUSHER_APP_ID,
@@ -70,7 +69,7 @@ export async function POST(request) {
 
     const student = await Student.findOneAndUpdate(
       { _id: studentId, selected: false },
-      { selected: true, biddedBy: teamName },
+      { selected: true, groupName: teamName },
       { new: true, lean: true, select: 'name _id' }
     );
 
@@ -79,7 +78,7 @@ export async function POST(request) {
       return NextResponse.json({ message: 'Student not found or already bidded' }, { status: 400 });
     }
 
-    console.log('Student updated:', { id: student._id, name: student.name, biddedBy: teamName });
+    console.log('Student updated:', { id: student._id, name: student.name, groupName: teamName });
 
     const sanitizedTeamName = teamName.replace(/\s+/g, '-').toLowerCase();
     console.log('Sanitized teamName for Pusher:', sanitizedTeamName);
