@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import axios from 'axios';
 import { toast } from 'react-toastify';
+import { motion } from 'framer-motion';
 
 export default function TeamLogin() {
   const [formData, setFormData] = useState({ teamName: '', password: '' });
@@ -42,43 +43,97 @@ export default function TeamLogin() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <div className="bg-white p-6 rounded-lg shadow-md w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-6">Team Login</h1>
-        <form onSubmit={handleSubmit}>
-          <div className="mb-4">
-            <label className="block text-gray-700">Team Name</label>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-teal-100 via-cyan-100 to-blue-100 px-6 lg:px-16 py-12 relative overflow-hidden">
+
+      {/* Floating Decor */}
+      <div className="absolute top-10 left-10 w-24 h-24 bg-pink-300/30 rounded-full blur-xl animate-float" />
+      <div className="absolute bottom-16 right-14 w-36 h-36 bg-yellow-300/25 rounded-full blur-xl animate-float delay-1000" />
+      <div className="absolute top-1/4 right-1/3 w-20 h-20 bg-indigo-300/25 rounded-full blur-xl animate-float delay-2000" />
+
+      {/* Login Card */}
+      <motion.div
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.7 }}
+        className="bg-white bg-opacity-90 backdrop-blur-xl rounded-3xl shadow-xl max-w-md w-full p-8"
+      >
+
+        {/* Main Heading */}
+        <motion.h1
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.6 }}
+          className="text-2xl font-light text-gray-900 mb-8"
+        >
+          Team Login
+        </motion.h1>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div>
+            <label htmlFor="teamName" className="block text-gray-800 font-medium mb-2">
+              Team Name
+            </label>
             <input
+              id="teamName"
               type="text"
               name="teamName"
               value={formData.teamName}
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-3 text-base border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 transition"
+              placeholder="Enter your team name"
               required
               disabled={isLoading}
             />
           </div>
-          <div className="mb-4">
-            <label className="block text-gray-700">Password</label>
+
+          <div>
+            <label htmlFor="password" className="block text-gray-800 font-medium mb-2">
+              Password
+            </label>
             <input
+              id="password"
               type="password"
               name="password"
               value={formData.password}
               onChange={handleChange}
-              className="w-full p-2 border rounded"
+              className="w-full p-3 text-base border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-cyan-500 transition"
+              placeholder="Enter your password"
               required
               disabled={isLoading}
             />
           </div>
+
           <button
             type="submit"
-            className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 disabled:bg-blue-300"
             disabled={isLoading}
+            className="w-full py-3 text-lg font-medium text-white rounded-xl shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed bg-gradient-to-r from-indigo-500 via-sky-500 to-teal-400 hover:from-indigo-600 hover:via-sky-600 hover:to-teal-500 hover:shadow-lg"
           >
-            {isLoading ? 'Logging in...' : 'Login'}
+            {isLoading ? 'Logging in...' : '🚀 Login'}
           </button>
         </form>
-      </div>
+      </motion.div>
+
+      {/* Floating Animation */}
+      <style jsx>{`
+        @keyframes float {
+          0%, 100% {
+            transform: translateY(0);
+          }
+          50% {
+            transform: translateY(-15px);
+          }
+        }
+        .animate-float {
+          animation: float 6s ease-in-out infinite;
+        }
+        .delay-1000 {
+          animation-delay: 1s;
+        }
+        .delay-2000 {
+          animation-delay: 2s;
+        }
+      `}</style>
     </div>
   );
 }
